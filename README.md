@@ -1,73 +1,132 @@
-# TideRent
+# Settle
 
-TideRent is a Tide UNLOCKED Challenge 2 prototype for clearer rental bond settlement between a renter and a landlord.
+**A fairer way to agree what happens next.**
 
 ## The problem
 
-Rental bond settlement depends on trust between the renter, landlord, and platform. A changed amount, missing approval, or privileged operator should not silently turn into a release.
+Rental bond settlement depends on trust between a renter and landlord. A unilateral release, altered amount, or privileged administrator should not be enough to finalize an agreement. If either party rejects the proposal, the settlement should move to hold and follow a dispute path.
 
-## The solution
+## How Settle works
 
-TideRent records one exact settlement proposal and requires matching approval from both the renter and landlord. The application rejects changed proposal versions, mismatched canonical payloads, duplicate identities, replayed transaction IDs, and administrator-only release attempts. A rejection or dispute places the settlement on HOLD.
+Settle records one settlement proposal for both parties to review.
 
-The normal release policy has exactly two parties: one renter and one landlord. A third party is not a quorum member and cannot override either party's dispute.
+- The renter and landlord review the same proposal version.
+- Both must approve the exact same canonical payload.
+- Normal release requires one renter approval and one landlord approval.
+- The approving identities must be distinct.
+- A rejection creates a dispute and places the settlement on **HOLD**.
+- A disputed settlement cannot be released.
+- A third party is not part of the normal release quorum.
+- Third-party approval cannot override a renter or landlord dispute.
 
-## Demo mode
+## Security model
 
-The current UI uses an in-browser demo client with renter and landlord switching. It is deliberately not authentication. Use the visible **Reset demo state** control in the sidebar to restore the seeded scenarios without restarting the app.
+The current application-side policy enforces:
 
-Recommended two-tab flow:
+- Canonical payload validation for bond, recipient, amount, agreement version, and transaction ID.
+- Proposal and version matching, with earlier approvals reset when terms change.
+- Renter + landlord quorum with distinct identities.
+- Administrator exclusion from party approval and release.
+- Replay and duplicate transaction protection while the current application state is active.
+- Dispute and HOLD blocking before release.
+- Server-side JWT and DPoP verifier code with tests for invalid, expired, wrong-role, tampered, and replayed proofs.
 
-1. Open the renter dashboard and use bond `TR-2048` to create or review a proposal.
-2. Approve the exact version as the renter.
-3. Open the landlord dashboard, review the same version, and approve it.
-4. Request the simulated release and inspect the Security evidence panel.
-5. Reset the demo, then use the dispute path to show HOLD and blocked release.
+The browser demo is intentionally not authentication. The UI's renter and landlord switching is for demonstration only.
 
-## What is real versus simulated
+## What is real vs simulated
 
-| Capability | Current status |
+| Capability | Status |
 | --- | --- |
-| Canonical payload and hash checks in the backend service | Real application-side enforcement |
-| Renter + landlord quorum and distinct identities | Real application-side enforcement |
-| Proposal/version checks and approval reset | Real application-side enforcement |
-| Transaction replay protection while current application state is active | Real application-side enforcement |
-| Dispute/HOLD behavior and administrator exclusion | Real application-side enforcement |
-| API-side JWT/DPoP verifier code | Implemented and unit-tested; live realm configuration is missing |
-| TideCloak login and browser DPoP session | Not live in this demo |
-| Forseti policy enforcement | Simulated policy adapter |
-| Tide authoritative release signature and ORK threshold execution | Not implemented or verified |
-| RTBA, CAV, RDRV, and VCAT connections | Not implemented |
-| Money transfer | Not implemented |
+| Application-side settlement policy | **Real / implemented** |
+| Canonical payload and proposal/version checks | **Real / implemented** |
+| Renter + landlord quorum and distinct identities | **Real / implemented** |
+| Dispute / HOLD logic and administrator exclusion | **Real / implemented** |
+| Replay checks during active application state | **Real / implemented** |
+| Server-side JWT / DPoP verifier code and tests | **Implemented and tested; live realm not configured** |
+| Live TideCloak login | **Simulated / not live** |
+| Live browser DPoP key flow | **Simulated / not live** |
+| Forseti execution | **Simulated policy adapter** |
+| Authoritative Tide/Forseti threshold release signature | **Not implemented or verified** |
+| ORK threshold execution for bond release | **Not implemented or verified** |
+| RTBA integration | **Not implemented** |
+| CAV, RDRV, or VCAT integration | **Not implemented** |
+| Real money transfer | **Not implemented** |
+| Durable production persistence | **Not implemented; demo state is in memory** |
 
-The policy adapter is intentionally kept behind [lib/bonds/policy.ts](./lib/bonds/policy.ts). The current adapter returns `simulation` evidence only. The repository does not claim a Forseti signature or Tide threshold authorization.
+The current policy adapter is [lib/bonds/policy.ts](./lib/bonds/policy.ts). It returns simulation evidence only. Settle does not claim live Tide authorization, a Forseti signature, government verification, or a completed bond transfer.
+
+## Demo
+
+Use the existing demo controls:
+
+1. Open **Renter demo** and select bond `TR-2048`.
+2. Review the proposal and approve it.
+3. Open **Landlord demo** and approve the same proposal version.
+4. Request the simulated release.
+5. Inspect the **Security Evidence** panel.
+6. Use **Reset demo state** to restore the seeded scenarios.
+7. Reject a proposal with **Reject and place on hold** and show that release is blocked.
+
+The demo uses an in-browser mock client and does not create fake authentication.
+
+## Security Evidence panel
+
+For each settlement, the panel shows:
+
+- Bond ID
+- Agreement version
+- Transaction ID
+- Renter approval
+- Landlord approval
+- Dispute / HOLD status
+- Release status
+- Refund amount
+- Canonical payload fields
+- `SIMULATED_FORSETI` policy mode
+
+It does not display tokens, secrets, or private keys.
 
 ## Threats demonstrated
 
-- Changed amount or proposal version after approval
+- Changed amount after approval
 - Missing approval
-- Duplicate or same-party approval
+- Duplicate identity
 - Administrator bypass attempt
-- Replayed transaction ID
-- Renter or landlord dispute
-- Third-party override attempt
+- Replayed transaction
+- Dispute override attempt
 
-## Tide architecture boundary
+## Tech stack
 
-The intended integration uses TideCloak for identity, roles, sessions, JWT validation, and browser sender-constrained DPoP requests. Forseti is the future policy boundary for exact payload authorization. The current repository demonstrates the application-side policy and keeps the Forseti result explicitly simulated.
+- Next.js 15 App Router
+- React 19
+- TypeScript
+- Tailwind CSS 4
+- `jose` for JWT and DPoP verification
+- `@tidecloak/nextjs` server verification dependency
+- Node test runner through `tsx`
+- Server routes under `app/api/bonds`
+- Shared contracts under `shared/`
+- Current demo state in an in-memory mock client and service
 
-## Legal boundary
+## Local setup
 
-This is a hackathon prototype. It does not connect to RTBA, Consumer Affairs Victoria, Rental Dispute Resolution Victoria, VCAT, banks, payment rails, or government systems. No money moves. Official claims and order pathways remain separate.
-
-## Development
-
-```text
+```bash
 npm ci
-npm.cmd run typecheck
-npm.cmd test
-npm.cmd run build
-npm.cmd run dev
+npm run dev
 ```
 
-The server-side API requires a Tide adapter configuration and fails closed with `401` when one is not configured. See [docs/TIDECLOAK_SETUP.md](./docs/TIDECLOAK_SETUP.md) for the external setup boundary.
+The browser demo can run without external credentials. The protected server API requires a Tide adapter configuration and fails closed when one is not configured.
+
+## Validation
+
+```bash
+npm run typecheck
+npm test
+npm run build
+```
+
+The current test suite contains **23 passing tests** covering authentication helpers, DPoP validation, settlement quorum, rejection and HOLD behavior, replay protection, administrator exclusion, and third-party override attempts.
+
+## Legal / prototype boundary
+
+Settle is a hackathon prototype. No money moves and no RTBA, Consumer Affairs Victoria, Rental Dispute Resolution Victoria, or VCAT integration exists. Official bond handling and any formal dispute or order pathway remain outside Settle.
