@@ -55,6 +55,12 @@ The browser demo is intentionally not authentication. The UI's renter and landlo
 
 The current policy adapter is [lib/bonds/policy.ts](./lib/bonds/policy.ts). It returns simulation evidence only. Settle does not claim live Tide authorization, a Forseti signature, government verification, or a completed bond transfer.
 
+## Tide MCP / Raziel
+
+Settle used Tide's Raziel MCP during development to research and validate the intended Tide security architecture, including TideCloak authentication, DPoP verification, role-based authorization, and Forseti policy design.
+
+The MCP integration was used as a development and architecture tool. It is not part of the runtime bond settlement flow, and the current prototype does not claim live Forseti threshold execution or authoritative Tide release signatures.
+
 ## Demo
 
 Use the existing demo controls:
