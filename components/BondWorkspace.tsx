@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getBondApi, type BondCase, type PartyRole, type SettlementCase } from "../lib/api";
 import { deductionCategoryLabels, disputePathwayLabels, formatDate, formatDateTime, formatMoney } from "../lib/format";
+import { ApprovalConfirm } from "./ApprovalConfirm";
 import { DeductionEditor } from "./DeductionEditor";
 import { DisputeForm } from "./DisputeForm";
 import { AlertIcon, BookIcon, CheckCircleIcon, SendIcon, SwapIcon } from "./icons";
@@ -86,6 +87,20 @@ export function BondWorkspace({ role, bondId }: { role: PartyRole; bondId: strin
         </p>
       )}
 
+      {settlement && mode === "confirm-approve" ? (
+        <ApprovalConfirm
+          bond={bond}
+          settlement={settlement}
+          role={role}
+          busy={busy}
+          onCancel={() => setMode("view")}
+          onConfirm={() =>
+            runAndShowError(() =>
+              api.approve(bond.id, { proposalVersion: settlement.currentProposal.version, payloadHash: settlement.currentProposal.payloadHash }),
+            )
+          }
+        />
+      ) : (
       <div className="mt-8 grid gap-6 lg:grid-cols-[1.4fr_1fr]">
         <div className="space-y-6">
           {!settlement && role === "renter" && (
@@ -128,37 +143,6 @@ export function BondWorkspace({ role, bondId }: { role: PartyRole; bondId: strin
 
           {settlement && mode !== "edit" && <ProposalCard settlement={settlement} bondAmountCents={bond.bondAmountCents} />}
 
-          {settlement && mode === "confirm-approve" && (
-            <Panel className="border-[#0b4f43]">
-              <h2 className="text-lg font-bold">Approve version {settlement.currentProposal.version}?</h2>
-              <p className="mt-2 text-sm leading-6 text-[#5f6b76]">
-                You are approving these exact terms: <strong>{formatMoney(settlement.currentProposal.refundToRenterCents)}</strong> to the renter and{" "}
-                <strong>{formatMoney(settlement.currentProposal.paymentToLandlordCents)}</strong> to the landlord. If either party changes the terms, this
-                approval stops counting.
-              </p>
-              <p className="mt-3 rounded-lg bg-[#fff4d8] p-3 text-xs leading-5 text-[#6b4f14]">
-                Simulated approval. It is not signed by Tide or Forseti and does not release any money.
-              </p>
-              <div className="mt-4 flex flex-wrap gap-3">
-                <MotionButton
-                  variant="primary"
-                  icon={<CheckCircleIcon />}
-                  disabled={busy}
-                  onClick={() =>
-                    runAndShowError(() =>
-                      api.approve(bond.id, { proposalVersion: settlement.currentProposal.version, payloadHash: settlement.currentProposal.payloadHash }),
-                    )
-                  }
-                >
-                  {busy ? "Recording…" : "Confirm approval"}
-                </MotionButton>
-                <MotionButton variant="outline" onClick={() => setMode("view")}>
-                  Cancel
-                </MotionButton>
-              </div>
-            </Panel>
-          )}
-
           {settlement && mode === "view" && (
             <Actions
               role={role}
@@ -191,6 +175,7 @@ export function BondWorkspace({ role, bondId }: { role: PartyRole; bondId: strin
           {settlement && <Timeline settlement={settlement} />}
         </aside>
       </div>
+      )}
     </Shell>
   );
 }
