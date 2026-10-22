@@ -95,13 +95,13 @@ Possible errors: `400` malformed payload, `401` unauthenticated, `403` party mis
 
 Records the authenticated renter or landlord decision. The server derives the approver identity and role from the verified token; the client cannot choose either value.
 
-Request: the frontend `ApproveInput` shape. The server derives the approver identity and role.
+Request: the frontend `ApproveInput` shape. `decision` may be `"approved"` or `"rejected"`; omitted `decision` remains a backwards-compatible approval for the current demo UI. A rejection records a dispute, moves the settlement to `disputed`/hold, and is never counted as an approval.
 
 The server must compare the submitted `payloadHash` with the current proposal hash and reject mismatches.
 
 Response: `ApiResponse<BondCase>` with `201`.
 
-Possible errors: `400` invalid decision, `401`, `403` wrong party or role, `409` duplicate approval or hash mismatch.
+Possible errors: `400` invalid decision, `401`, `403` wrong party or role, `409` duplicate approval, hash mismatch, or an already disputed settlement.
 
 ### `POST /api/bonds/:bondId/disputes`
 

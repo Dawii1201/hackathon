@@ -7,6 +7,7 @@ import type {
   Deduction,
   DeductionInput,
   PartyRole,
+  ApprovalDecision,
   ProposeTermsInput,
   RaiseDisputeInput,
   RequestReleaseInput,
@@ -131,7 +132,9 @@ function ownCase(bondId: string, actor: BondActor): StoredCase {
 }
 
 function requireParty(actor: BondActor): asserts actor is BondActor & { role: PartyRole } {
-  if (actor.role === "admin") fail("FORBIDDEN", "Administrators cannot act as a renter or landlord.");
+  if (actor.role !== "renter" && actor.role !== "landlord") {
+    fail("FORBIDDEN", "Only renter or landlord identities can act on settlement terms.");
+  }
 }
 
 function event(settlement: SettlementCase, type: TimelineEvent["type"], actorRole: TimelineEvent["actorRole"], summary: string): void {
@@ -263,13 +266,27 @@ export class BondService {
     return clone(entry);
   }
 
-  approve(bondId: string, actor: BondActor, input: { proposalVersion: number; payloadHash?: string }): BondCase {
+  approve(bondId: string, actor: BondActor, input: { proposalVersion: number; payloadHash?: string; decision?: ApprovalDecision }): BondCase {
     requireParty(actor);
     const entry = ownCase(bondId, actor);
     const settlement = entry.settlement ?? fail("INVALID_INPUT", "There is nothing to approve yet.");
     if (settlement.status === "disputed") fail("DISPUTE_OPEN", "A disputed settlement cannot be approved.");
     if (settlement.status === "approved") fail("DUPLICATE_APPROVAL", "These terms are already approved.");
     assertCurrentPayload(entry, input.proposalVersion, input.payloadHash);
+    if (input.decision !== undefined && input.decision !== "approved" && input.decision !== "rejected") {
+      fail("INVALID_INPUT", "Decision must be approved or rejected.");
+    }
+    if (input.decision === "rejected") {
+      settlement.dispute = {
+        raisedBy: actor.role,
+        raisedAt: now(),
+        reason: `${actor.role} rejected the proposed settlement terms.`,
+        intendedPathway: "undecided",
+      };
+      settlement.status = "disputed";
+      event(settlement, "dispute-raised", actor.role, `${actor.role} rejected the proposed settlement terms; settlement is on hold.`);
+      return clone(entry);
+    }
     if (settlement.approvals.some((approval) => approval.partyId === actor.id)) fail("DUPLICATE_APPROVAL", "This identity already approved the current terms.");
     settlement.approvals.push({
       partyId: actor.id,

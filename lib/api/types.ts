@@ -19,6 +19,9 @@
 
 export type PartyRole = "renter" | "landlord";
 
+/** A party may approve terms or reject them, which places the settlement on hold. */
+export type ApprovalDecision = "approved" | "rejected";
+
 /** Settlement states the UI must display. Computed by the backend only. */
 export type SettlementStatus = "pending" | "approved" | "disputed";
 
@@ -194,6 +197,8 @@ export interface ApproveInput {
   proposalVersion: number;
   /** Echo of the server's payloadHash when present; backend rejects mismatches. */
   payloadHash?: string;
+  /** Omitted for backwards compatibility with the existing demo UI; defaults to approval. */
+  decision?: ApprovalDecision;
 }
 
 /** Body of POST /api/bonds/:id/releases. */

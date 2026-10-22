@@ -12,6 +12,7 @@ interface Props {
   role: PartyRole;
   busy: boolean;
   onConfirm: () => void;
+  onReject: () => void;
   onCancel: () => void;
 }
 
@@ -25,7 +26,7 @@ const normalise = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase();
  * approval request carries only the proposal version (and payloadHash when the
  * server provides one). Real signing belongs to the Tide/Forseti integration.
  */
-export function ApprovalConfirm({ bond, settlement, role, busy, onConfirm, onCancel }: Props) {
+export function ApprovalConfirm({ bond, settlement, role, busy, onConfirm, onReject, onCancel }: Props) {
   const me = role === "renter" ? bond.renter : bond.landlord;
   const p = settlement.currentProposal;
   const [name, setName] = useState("");
@@ -33,7 +34,7 @@ export function ApprovalConfirm({ bond, settlement, role, busy, onConfirm, onCan
   const nameRef = useRef<HTMLInputElement>(null);
 
   const nameMatches = normalise(name) === normalise(me.displayName);
-  const canApprove = nameMatches && reviewed && !busy;
+  const canSubmit = nameMatches && reviewed && !busy;
 
   // Keep the latest onCancel without re-running effects (callers pass inline arrows).
   const cancelRef = useRef(onCancel);
@@ -91,7 +92,7 @@ export function ApprovalConfirm({ bond, settlement, role, busy, onConfirm, onCan
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (canApprove) onConfirm();
+          if (canSubmit) onConfirm();
         }}
         className="relative z-10 mt-4 rounded-[1.75rem] bg-[#efe7e1] p-6 shadow-[0_24px_60px_rgba(27,39,51,.16)] sm:p-8 lg:-ml-16 lg:mt-48 lg:self-start"
       >
@@ -128,8 +129,11 @@ export function ApprovalConfirm({ bond, settlement, role, busy, onConfirm, onCan
         </label>
 
         <div className="mt-6 flex flex-wrap gap-3">
-          <MotionButton type="submit" variant="primary" size="lg" icon={<CheckCircleIcon />} disabled={!canApprove}>
+          <MotionButton type="submit" variant="primary" size="lg" icon={<CheckCircleIcon />} disabled={!canSubmit}>
             {busy ? "Recording…" : `Approve v${p.version}`}
+          </MotionButton>
+          <MotionButton type="button" variant="danger" size="lg" disabled={!canSubmit} onClick={onReject}>
+            Reject and place on hold
           </MotionButton>
           <MotionButton variant="ghost" size="lg" onClick={onCancel}>
             Cancel

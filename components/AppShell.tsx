@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Fragment, useEffect, useState } from "react";
-import { getDemoParty } from "../lib/api/mock-client";
+import { getDemoParty, resetMockStore } from "../lib/api/mock-client";
 import type { PartyRole } from "../lib/api/types";
 import { BellIcon, BookIcon, ChevronRightIcon, CloseIcon, HomeIcon, LayoutIcon, MenuIcon, UserIcon } from "./icons";
 import { SettleLogo } from "./SettleLogo";
@@ -30,6 +30,11 @@ export function AppShell({ role, crumbs, children }: { role?: PartyRole; crumbs:
 
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
 
+  function resetDemo() {
+    resetMockStore();
+    window.location.reload();
+  }
+
   const sidebar = (
     <nav aria-label="Main" className="flex h-full flex-col gap-1.5 p-5">
       {nav.map(({ href, label, icon: Icon }) => {
@@ -48,6 +53,13 @@ export function AppShell({ role, crumbs, children }: { role?: PartyRole; crumbs:
           </Link>
         );
       })}
+      <button
+        type="button"
+        onClick={resetDemo}
+        className="mt-2 rounded-2xl border border-[#d5dde0] px-5 py-3 text-left text-sm font-semibold text-[#1b2733] transition hover:border-[#0b4f43] hover:bg-[#eef4f3] hover:text-[#0b4f43]"
+      >
+        Reset demo state
+      </button>
       <div className="mt-auto rounded-2xl bg-[#fff6e0] p-4 text-xs leading-5 text-[#6b4f14]">
         <p className="font-bold">Prototype</p>
         <p className="mt-1">Simulated data. No money moves and no RTBA, CAV, RDRV or VCAT integration.</p>

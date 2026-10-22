@@ -17,13 +17,14 @@ function errorCode(action: () => unknown, code: BondServiceError["code"]): void 
 
 beforeEach(() => resetBondStore());
 
-test("accepts one renter and one landlord approval for the same canonical payload", async () => {
+test("allows release with renter and landlord approval without third-party approval", async () => {
   const service = new BondService();
   const created = service.propose("TR-2048", renter, proposalInput());
   const payloadHash = created.settlement!.currentProposal.payloadHash;
   service.approve("TR-2048", renter, { proposalVersion: 1, payloadHash });
   const approved = service.approve("TR-2048", landlord, { proposalVersion: 1, payloadHash });
   assert.equal(approved.settlement?.status, "approved");
+  assert.deepEqual(approved.settlement?.approvals.map((approval) => approval.role).sort(), ["landlord", "renter"]);
 
   const released = await service.release("TR-2048", landlord, { proposalVersion: 1, payloadHash });
   assert.equal(released.settlement?.release?.status, "simulated");
@@ -62,6 +63,12 @@ test("rejects administrator-only release", async () => {
   await assert.rejects(service.release("TR-2048", admin, { proposalVersion: 1 }), (error: unknown) => error instanceof BondServiceError && error.code === "FORBIDDEN");
 });
 
+test("rejects an administrator approval attempt", () => {
+  const service = new BondService();
+  service.propose("TR-2048", renter, proposalInput());
+  errorCode(() => service.approve("TR-2048", admin, { proposalVersion: 1 }), "FORBIDDEN");
+});
+
 test("rejects replayed transaction and duplicate release", async () => {
   const service = new BondService();
   const created = service.propose("TR-2048", renter, proposalInput());
@@ -78,6 +85,46 @@ test("moves a disagreement into dispute state and blocks approval", () => {
   const disputed = service.dispute("TR-2048", landlord, { reason: "Damage is pre-existing", intendedPathway: "rdrv" });
   assert.equal(disputed.settlement?.status, "disputed");
   errorCode(() => service.approve("TR-2048", renter, { proposalVersion: 1 }), "DISPUTE_OPEN");
+});
+
+test("renter rejection places the settlement on hold", () => {
+  const service = new BondService();
+  service.propose("TR-2048", renter, proposalInput());
+  const result = service.approve("TR-2048", renter, { proposalVersion: 1, decision: "rejected" });
+  assert.equal(result.settlement?.status, "disputed");
+  assert.equal(result.settlement?.approvals.length, 0);
+});
+
+test("landlord rejection places the settlement on hold", () => {
+  const service = new BondService();
+  service.propose("TR-2048", renter, proposalInput());
+  const result = service.approve("TR-2048", landlord, { proposalVersion: 1, decision: "rejected" });
+  assert.equal(result.settlement?.status, "disputed");
+  assert.equal(result.settlement?.approvals.length, 0);
+});
+
+test("renter approval plus landlord rejection remains on hold", async () => {
+  const service = new BondService();
+  const created = service.propose("TR-2048", renter, proposalInput());
+  const payloadHash = created.settlement!.currentProposal.payloadHash;
+  service.approve("TR-2048", renter, { proposalVersion: 1, payloadHash });
+  const result = service.approve("TR-2048", landlord, { proposalVersion: 1, payloadHash, decision: "rejected" });
+  assert.equal(result.settlement?.status, "disputed");
+  await assert.rejects(service.release("TR-2048", renter, { proposalVersion: 1, payloadHash }), (error: unknown) => error instanceof BondServiceError && error.code === "APPROVAL_QUORUM_INCOMPLETE");
+});
+
+test("renter rejection plus landlord approval remains on hold", () => {
+  const service = new BondService();
+  service.propose("TR-2048", renter, proposalInput());
+  service.approve("TR-2048", renter, { proposalVersion: 1, decision: "rejected" });
+  errorCode(() => service.approve("TR-2048", landlord, { proposalVersion: 1 }), "DISPUTE_OPEN");
+});
+
+test("third-party approval cannot override a dispute", () => {
+  const service = new BondService();
+  service.propose("TR-2048", renter, proposalInput());
+  service.dispute("TR-2048", renter, { reason: "Disputed terms", intendedPathway: "rdrv" });
+  errorCode(() => service.approve("TR-2048", { id: "observer-1", role: "third-party" } as unknown as BondActor, { proposalVersion: 1 }), "FORBIDDEN");
 });
 
 test("does not reveal a bond to an unrelated party", () => {

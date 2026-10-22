@@ -10,6 +10,7 @@ import { DisputeForm } from "./DisputeForm";
 import { AlertIcon, BookIcon, CheckCircleIcon, SendIcon, SwapIcon } from "./icons";
 import { MotionButton } from "./MotionButton";
 import { StatusBadge } from "./StatusBadge";
+import { SecurityEvidence } from "./SecurityEvidence";
 
 type Mode = "view" | "edit" | "dispute" | "confirm-approve";
 
@@ -94,6 +95,11 @@ export function BondWorkspace({ role, bondId }: { role: PartyRole; bondId: strin
           role={role}
           busy={busy}
           onCancel={() => setMode("view")}
+          onReject={() =>
+            runAndShowError(() =>
+              api.approve(bond.id, { proposalVersion: settlement.currentProposal.version, payloadHash: settlement.currentProposal.payloadHash, decision: "rejected" }),
+            )
+          }
           onConfirm={() =>
             runAndShowError(() =>
               api.approve(bond.id, { proposalVersion: settlement.currentProposal.version, payloadHash: settlement.currentProposal.payloadHash }),
@@ -160,6 +166,7 @@ export function BondWorkspace({ role, bondId }: { role: PartyRole; bondId: strin
 
         <aside className="space-y-6">
           {settlement && <ApprovalPanel settlement={settlement} renterName={bond.renter.displayName} landlordName={bond.landlord.displayName} />}
+          {settlement && <SecurityEvidence bond={bond} settlement={settlement} />}
           {settlement?.dispute && (
             <Panel className="border-[#e5b8a9] bg-[#fdf3ef]">
               <h2 className="text-lg font-bold text-[#9b3a22]">Disputed by the {settlement.dispute.raisedBy}</h2>

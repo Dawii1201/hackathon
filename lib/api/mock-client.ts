@@ -299,6 +299,13 @@ export function createMockBondApi(role: PartyRole): BondApi {
       if (s.status === "approved") fail("invalid-state", "These terms are already approved.");
       if (input.proposalVersion !== s.currentProposal.version) fail("stale-version", "You can only approve the latest version of the terms.");
       if (input.payloadHash !== undefined && input.payloadHash !== s.currentProposal.payloadHash) fail("stale-version", "The approval does not match the current terms.");
+      if (input.decision !== undefined && input.decision !== "approved" && input.decision !== "rejected") fail("invalid-input", "Decision must be approved or rejected.");
+      if (input.decision === "rejected") {
+        s.dispute = { raisedBy: role, raisedAt: now(), reason: `${me.displayName} rejected the proposed settlement terms.`, intendedPathway: "undecided" };
+        s.status = "disputed";
+        event(s, "dispute-raised", role, `${me.displayName} rejected the proposed settlement terms; settlement is on hold.`);
+        return clone(c);
+      }
       if (s.approvals.some((a) => a.partyId === me.id)) fail("invalid-state", "You already approved this version.");
       s.approvals.push({ partyId: me.id, role, proposalVersion: input.proposalVersion, approvedAt: now(), enforcement: "simulated" });
       event(s, "approval-recorded", role, `${me.displayName} approved v${input.proposalVersion} (simulated).`);
