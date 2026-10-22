@@ -1,7 +1,7 @@
 import type { JWTPayload } from "jose";
 import { verifyDpopProof } from "./dpop";
 import { hasTideRole, TideAuthenticationError, verifyTideAccessToken } from "./tide-jwt";
-import type { TideAdapterConfig } from "./tide-config";
+import { loadTideConfig, type TideAdapterConfig } from "./tide-config";
 
 export interface ProtectedRequest {
   method: string;
@@ -12,6 +12,15 @@ export interface ProtectedRequest {
 export interface AuthenticatedRequestContext {
   token: string;
   claims: JWTPayload;
+  config: TideAdapterConfig;
+}
+
+/** The token was valid, but it is not permitted to perform this operation. */
+export class TideAuthorizationError extends Error {
+  constructor(message = "Forbidden") {
+    super(message);
+    this.name = "TideAuthorizationError";
+  }
 }
 
 function tokenFromRequest(request: ProtectedRequest): { token: string; scheme: string } {
@@ -26,13 +35,14 @@ export async function authenticateRequest(
   options: { config?: TideAdapterConfig; requireDpop?: boolean } = {},
 ): Promise<AuthenticatedRequestContext> {
   const { token, scheme } = tokenFromRequest(request);
-  const claims = await verifyTideAccessToken(token, options.config);
+  const config = options.config ?? loadTideConfig();
+  const claims = await verifyTideAccessToken(token, config);
   const requireDpop = options.requireDpop ?? process.env.TIDECLOAK_REQUIRE_DPOP !== "false";
   if (requireDpop) {
     if (scheme !== "DPoP") throw new TideAuthenticationError("DPoP authorization is required");
     await verifyDpopProof(token, claims, request);
   }
-  return { token, claims };
+  return { token, claims, config };
 }
 
 export async function requireRole(
@@ -41,8 +51,11 @@ export async function requireRole(
   options: { config?: TideAdapterConfig; requireDpop?: boolean } = {},
 ): Promise<AuthenticatedRequestContext> {
   const context = await authenticateRequest(request, options);
-  if (!hasTideRole(context.claims, role)) {
-    throw new TideAuthenticationError(`Required role is missing: ${role}`);
+  if (!hasTideRole(context.claims, role, context.config.resource)) {
+    throw new TideAuthorizationError(`Required role is missing: ${role}`);
+  }
+  if ((role === "renter" || role === "landlord") && hasTideRole(context.claims, "admin", context.config.resource)) {
+    throw new TideAuthorizationError("Administrator tokens cannot impersonate a rental party");
   }
   return context;
 }

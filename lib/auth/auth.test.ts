@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { calculateJwkThumbprint, exportJWK, generateKeyPair, SignJWT } from "jose";
-import { authenticateRequest, requireRole } from "./guards";
+import { authenticateRequest, requireRole, TideAuthorizationError } from "./guards";
 import { DpopReplayCache, verifyDpopProof } from "./dpop";
 import { hasTideRole, TideAuthenticationError, verifyTideAccessToken } from "./tide-jwt";
 import type { TideAdapterConfig } from "./tide-config";
@@ -106,6 +106,54 @@ test("role guard rejects a landlord token on a renter route", async () => {
       "renter",
       { config, requireDpop: false },
     ),
-    TideAuthenticationError,
+    TideAuthorizationError,
   );
+});
+
+test("rejects a tampered token", async () => {
+  const { config, token } = await fixture();
+  const validToken = await token("renter", Math.floor(Date.now() / 1000) + 60);
+  await assert.rejects(verifyTideAccessToken(`${validToken}tampered`, config), TideAuthenticationError);
+});
+
+test("rejects an administrator impersonating a rental party", async () => {
+  const { config, token } = await fixture();
+  const adminToken = await token("admin", Math.floor(Date.now() / 1000) + 60);
+  await assert.rejects(
+    requireRole(
+      {
+        method: "POST",
+        url: "https://app.example/api/release-attempts",
+        headers: new Headers({ Authorization: `Bearer ${adminToken}` }),
+      },
+      "renter",
+      { config, requireDpop: false },
+    ),
+    TideAuthorizationError,
+  );
+});
+
+test("rejects a replayed DPoP jti", async () => {
+  const { config, token, privateKey, publicJwk } = await fixture();
+  const accessToken = await token("renter", Math.floor(Date.now() / 1000) + 60);
+  const now = Math.floor(Date.now() / 1000);
+  const proof = await new SignJWT({
+    jti: "replayed-proof",
+    htm: "GET",
+    htu: "https://app.example/api/bonds/TR-1",
+    iat: now,
+    ath: createHash("sha256").update(accessToken).digest("base64url"),
+  })
+    .setProtectedHeader({ alg: "EdDSA", typ: "dpop+jwt", jwk: publicJwk })
+    .sign(privateKey);
+  const claims = await verifyTideAccessToken(accessToken, config);
+  const request = {
+    method: "GET",
+    url: "https://app.example/api/bonds/TR-1",
+    headers: new Headers({ DPoP: proof }),
+    now,
+  };
+  const replayCache = new DpopReplayCache();
+  await verifyDpopProof(accessToken, claims, request, replayCache);
+  await assert.rejects(verifyDpopProof(accessToken, claims, request, replayCache), TideAuthenticationError);
 });

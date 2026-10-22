@@ -11,6 +11,7 @@
     "test": "tsx --test \"lib/**/*.test.ts\""
   },
   "dependencies": {
+    "@tidecloak/nextjs": "^0.14.40",
     "jose": "^6.2.13",
     "next": "15.5.6",
     "react": "19.1.0",

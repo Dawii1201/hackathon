@@ -1,4 +1,5 @@
-import { createLocalJWKSet, jwtVerify, type JWTPayload } from "jose";
+import type { JWTPayload } from "jose";
+import { verifyTideCloakToken } from "@tidecloak/nextjs/server";
 import type { TideAdapterConfig } from "./tide-config";
 import { loadTideConfig } from "./tide-config";
 
@@ -18,10 +19,15 @@ export async function verifyTideAccessToken(
   config: TideAdapterConfig = loadTideConfig(),
 ): Promise<JWTPayload> {
   try {
-    const { payload } = await jwtVerify(token, createLocalJWKSet(config.jwk), {
-      issuer: issuerFor(config),
-    });
+    const payload = await verifyTideCloakToken(
+      { ...config, tokenSignatureAlgorithms: ["ES256", "ES384", "ES512", "EdDSA"] },
+      token,
+    );
+    if (!payload) throw new TideAuthenticationError();
 
+    if (payload.iss !== issuerFor(config)) {
+      throw new TideAuthenticationError("Token issuer does not match the Tide realm");
+    }
     if (payload.azp !== config.resource) {
       throw new TideAuthenticationError("Token azp does not match the Tide client");
     }
@@ -34,25 +40,25 @@ export async function verifyTideAccessToken(
       throw new TideAuthenticationError("Token was issued in the future");
     }
 
-    return payload;
+    return payload as JWTPayload;
   } catch (error) {
     if (error instanceof TideAuthenticationError) throw error;
     throw new TideAuthenticationError();
   }
 }
 
-export function rolesFromTideClaims(payload: JWTPayload): string[] {
+export function rolesFromTideClaims(payload: JWTPayload, clientId?: string): string[] {
   const realmRoles = Array.isArray((payload.realm_access as { roles?: unknown } | undefined)?.roles)
     ? (payload.realm_access as { roles: unknown[] }).roles.filter((role): role is string => typeof role === "string")
     : [];
-  const clientRoles = Object.values(
-    (payload.resource_access as Record<string, { roles?: unknown }> | undefined) ?? {},
-  ).flatMap((client) => Array.isArray(client.roles)
+  const resourceAccess = (payload.resource_access as Record<string, { roles?: unknown }> | undefined) ?? {};
+  const clients = clientId ? [resourceAccess[clientId]] : Object.values(resourceAccess);
+  const clientRoles = clients.filter(Boolean).flatMap((client) => Array.isArray(client?.roles)
     ? client.roles.filter((role): role is string => typeof role === "string")
     : []);
   return [...new Set([...realmRoles, ...clientRoles])];
 }
 
-export function hasTideRole(payload: JWTPayload, role: string): boolean {
-  return rolesFromTideClaims(payload).includes(role);
+export function hasTideRole(payload: JWTPayload, role: string, clientId?: string): boolean {
+  return rolesFromTideClaims(payload, clientId).includes(role);
 }
