@@ -6,7 +6,7 @@ import { getBondApi, type BondCase, type PartyRole, type SettlementCase } from "
 import { deductionCategoryLabels, disputePathwayLabels, formatDate, formatDateTime, formatMoney } from "../lib/format";
 import { DeductionEditor } from "./DeductionEditor";
 import { DisputeForm } from "./DisputeForm";
-import { AlertIcon, BookIcon, CheckCircleIcon, SwapIcon } from "./icons";
+import { AlertIcon, BookIcon, CheckCircleIcon, SendIcon, SwapIcon } from "./icons";
 import { MotionButton } from "./MotionButton";
 import { StatusBadge } from "./StatusBadge";
 
@@ -95,7 +95,7 @@ export function BondWorkspace({ role, bondId }: { role: PartyRole; bondId: strin
               title="Request your bond back"
               hint="Ask for the full bond, or list any deductions you already accept. Your landlord can then approve or propose changes."
               submitLabel="Send refund request"
-              onSubmit={(deductions, note) => run(() => api.createRefundRequest(bond.id, { deductions, note: note || undefined }))}
+              onSubmit={(deductions, note) => run(() => api.proposeTerms(bond.id, { basedOnVersion: null, deductions, note: note || undefined }))}
             />
           )}
           {!settlement && role === "landlord" && (
@@ -144,7 +144,11 @@ export function BondWorkspace({ role, bondId }: { role: PartyRole; bondId: strin
                   variant="primary"
                   icon={<CheckCircleIcon />}
                   disabled={busy}
-                  onClick={() => runAndShowError(() => api.approve(bond.id, { proposalVersion: settlement.currentProposal.version }))}
+                  onClick={() =>
+                    runAndShowError(() =>
+                      api.approve(bond.id, { proposalVersion: settlement.currentProposal.version, payloadHash: settlement.currentProposal.payloadHash }),
+                    )
+                  }
                 >
                   {busy ? "Recording…" : "Confirm approval"}
                 </MotionButton>
@@ -155,7 +159,19 @@ export function BondWorkspace({ role, bondId }: { role: PartyRole; bondId: strin
             </Panel>
           )}
 
-          {settlement && mode === "view" && <Actions role={role} settlement={settlement} onMode={setMode} />}
+          {settlement && mode === "view" && (
+            <Actions
+              role={role}
+              settlement={settlement}
+              onMode={setMode}
+              busy={busy}
+              onRequestRelease={() =>
+                runAndShowError(() =>
+                  api.requestRelease(bond.id, { proposalVersion: settlement.currentProposal.version, payloadHash: settlement.currentProposal.payloadHash }),
+                )
+              }
+            />
+          )}
         </div>
 
         <aside className="space-y-6">
@@ -179,17 +195,51 @@ export function BondWorkspace({ role, bondId }: { role: PartyRole; bondId: strin
   );
 }
 
-function Actions({ role, settlement, onMode }: { role: PartyRole; settlement: SettlementCase; onMode: (m: Mode) => void }) {
+function Actions({
+  role,
+  settlement,
+  onMode,
+  onRequestRelease,
+  busy,
+}: {
+  role: PartyRole;
+  settlement: SettlementCase;
+  onMode: (m: Mode) => void;
+  onRequestRelease: () => void;
+  busy: boolean;
+}) {
   const iApproved = settlement.approvals.some((a) => a.role === role);
 
   if (settlement.status === "approved") {
+    const release = settlement.release;
     return (
       <Panel className="border-[#0b4f43] bg-[#f1f6f6]">
         <h2 className="text-lg font-bold">Both parties approved version {settlement.currentProposal.version}</h2>
         <p className="mt-2 text-sm leading-6 text-[#5f6b76]">
-          Settle records the agreement only. The bond is not released by this prototype: secure release authorisation (a Forseti policy) is not
-          implemented yet, and the official release still happens through RTBA, for example with a bond claim form signed by both parties.
+          You can ask the backend to run the release policy check. Today that check is simulated: a Forseti policy is not deployed yet, no money
+          moves, and the official release still happens through RTBA, for example with a bond claim form signed by both parties.
         </p>
+        {release ? (
+          <div className="mt-4 rounded-xl border border-[#f1dfae] bg-[#fff6e0] p-4 text-sm">
+            <p className="font-bold text-[#6b4f14]">
+              {release.status === "verified" && release.authorizationMode === "forseti"
+                ? "Release authorised by Forseti policy"
+                : release.status === "rejected"
+                  ? "Release request rejected"
+                  : "Simulated release recorded. Not Tide-verified."}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-[#6b4f14]">
+              {release.transactionId} · requested by the {release.requestedBy} · {formatDateTime(release.createdAt)}
+              {release.rejectionReason ? ` · ${release.rejectionReason}` : ""}
+            </p>
+          </div>
+        ) : (
+          <div className="mt-4">
+            <MotionButton variant="primary" icon={<SendIcon />} disabled={busy} onClick={onRequestRelease}>
+              {busy ? "Checking…" : "Request simulated release"}
+            </MotionButton>
+          </div>
+        )}
       </Panel>
     );
   }
@@ -249,6 +299,11 @@ function ProposalCard({ settlement, bondAmountCents }: { settlement: SettlementC
         </p>
       </div>
       {p.note && <p className="mt-3 rounded-lg bg-[#f1f6f6] p-3 text-sm italic text-[#455249]">“{p.note}”</p>}
+      {p.payloadHash && (
+        <p className="mt-2 break-all font-mono text-xs text-[#5f6b76]" title="Computed by the server from the canonical release payload">
+          Payload hash: {p.payloadHash}
+        </p>
+      )}
 
       <div className="mt-4 overflow-x-auto">
         <table className="w-full min-w-[22rem] text-left text-sm">

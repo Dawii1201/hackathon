@@ -18,12 +18,12 @@ import {
   type BondApi,
   type BondCase,
   type BondSummary,
-  type CreateRefundRequestInput,
   type Deduction,
   type DeductionInput,
   type PartyRole,
   type ProposeTermsInput,
   type RaiseDisputeInput,
+  type RequestReleaseInput,
   type SettlementCase,
   type SettlementProposal,
   type TimelineEvent,
@@ -115,6 +115,7 @@ function seed(): BondCase[] {
         currentProposal: proposal(2, "landlord", b1.bondAmountCents, b1Deductions, "2026-10-12T03:20:00.000Z", "Deductions based on the exit condition report."),
         approvals: [{ partyId: landlord.id, role: "landlord", proposalVersion: 2, approvedAt: "2026-10-12T03:21:00.000Z", enforcement: "simulated" }],
         dispute: null,
+        release: null,
         timeline: [
           { id: "e-1", type: "request-created", actorRole: "renter", at: "2026-10-08T09:00:00.000Z", summary: "Jordan requested a full refund of the bond (v1)." },
           { id: "e-2", type: "proposal-revised", actorRole: "landlord", at: "2026-10-12T03:20:00.000Z", summary: "Priya proposed two deductions totalling $260.00 (v2)." },
@@ -134,6 +135,7 @@ function seed(): BondCase[] {
           { partyId: landlord.id, role: "landlord", proposalVersion: 1, approvedAt: "2025-12-17T22:40:00.000Z", enforcement: "simulated" },
         ],
         dispute: null,
+        release: null,
         timeline: [
           { id: "e-5", type: "request-created", actorRole: "renter", at: "2025-12-16T01:00:00.000Z", summary: "Jordan requested a full refund of the bond (v1)." },
           { id: "e-6", type: "approval-recorded", actorRole: "renter", at: "2025-12-16T01:01:00.000Z", summary: "Jordan approved v1 (simulated)." },
@@ -155,6 +157,7 @@ function seed(): BondCase[] {
           reason: "The stain was recorded in the entry condition report, so it is not new damage.",
           intendedPathway: "rdrv",
         },
+        release: null,
         timeline: [
           { id: "e-9", type: "request-created", actorRole: "renter", at: "2026-10-09T02:00:00.000Z", summary: "Jordan requested a full refund of the bond (v1)." },
           { id: "e-10", type: "proposal-revised", actorRole: "landlord", at: "2026-10-14T05:00:00.000Z", summary: "Priya proposed a $900.00 carpet deduction (v2)." },
@@ -164,6 +167,18 @@ function seed(): BondCase[] {
       },
     },
     { bond: b4, settlement: null },
+    {
+      bond: {
+        id: "TR-2190",
+        rtbaReference: "SIM-0042-2190",
+        propertyAddress: "3/15 Mock Parade, Northcote VIC",
+        bondAmountCents: 195000,
+        tenancyEndDate: "2026-10-20",
+        renter,
+        landlord,
+      },
+      settlement: null,
+    },
   ];
 }
 
@@ -236,28 +251,29 @@ export function createMockBondApi(role: PartyRole): BondApi {
       return clone(findOwnCase(bondId));
     },
 
-    async createRefundRequest(bondId, input: CreateRefundRequestInput) {
-      await delay();
-      const c = findOwnCase(bondId);
-      if (role !== "renter") fail("forbidden", "Only the renter can open a refund request.");
-      if (c.settlement) fail("invalid-state", "A refund request already exists for this bond.");
-      const deductions = validateDeductions(c.bond, input.deductions);
-      const settlement: SettlementCase = {
-        transactionId: nextId("TX"),
-        status: "pending",
-        currentProposal: proposal(1, role, c.bond.bondAmountCents, deductions, now(), input.note),
-        approvals: [],
-        dispute: null,
-        timeline: [],
-      };
-      event(settlement, "request-created", role, `${me.displayName} requested ${money(settlement.currentProposal.refundToRenterCents)} back (v1).`);
-      c.settlement = settlement;
-      return clone(c);
-    },
-
     async proposeTerms(bondId, input: ProposeTermsInput) {
       await delay();
       const c = findOwnCase(bondId);
+
+      // First proposal = the renter's refund request.
+      if (input.basedOnVersion === null) {
+        if (role !== "renter") fail("forbidden", "Only the renter can open a refund request.");
+        if (c.settlement) fail("stale-version", "A refund request already exists for this bond. Review the latest version.");
+        const deductions = validateDeductions(c.bond, input.deductions);
+        const settlement: SettlementCase = {
+          transactionId: nextId("TX"),
+          status: "pending",
+          currentProposal: proposal(1, role, c.bond.bondAmountCents, deductions, now(), input.note),
+          approvals: [],
+          dispute: null,
+          release: null,
+          timeline: [],
+        };
+        event(settlement, "request-created", role, `${me.displayName} requested ${money(settlement.currentProposal.refundToRenterCents)} back (v1).`);
+        c.settlement = settlement;
+        return clone(c);
+      }
+
       const s = c.settlement ?? fail("invalid-state", "Open a refund request first.");
       if (s.status === "approved") fail("invalid-state", "Both parties already approved these terms.");
       if (input.basedOnVersion !== s.currentProposal.version) fail("stale-version", "The terms changed while you were editing. Review the latest version.");
@@ -282,6 +298,7 @@ export function createMockBondApi(role: PartyRole): BondApi {
       if (s.status === "disputed") fail("invalid-state", "This settlement is disputed. Propose new terms to reopen negotiation.");
       if (s.status === "approved") fail("invalid-state", "These terms are already approved.");
       if (input.proposalVersion !== s.currentProposal.version) fail("stale-version", "You can only approve the latest version of the terms.");
+      if (input.payloadHash !== undefined && input.payloadHash !== s.currentProposal.payloadHash) fail("stale-version", "The approval does not match the current terms.");
       if (s.approvals.some((a) => a.partyId === me.id)) fail("invalid-state", "You already approved this version.");
       s.approvals.push({ partyId: me.id, role, proposalVersion: input.proposalVersion, approvedAt: now(), enforcement: "simulated" });
       event(s, "approval-recorded", role, `${me.displayName} approved v${input.proposalVersion} (simulated).`);
@@ -303,6 +320,36 @@ export function createMockBondApi(role: PartyRole): BondApi {
       s.dispute = { raisedBy: role, raisedAt: now(), reason: input.reason.trim(), intendedPathway: input.intendedPathway };
       s.status = "disputed";
       event(s, "dispute-raised", role, `${me.displayName} disputed v${s.currentProposal.version}.`);
+      return clone(c);
+    },
+
+    /**
+     * Simulated policy check. A real backend would rebuild the canonical
+     * payload and ask Forseti; here we only re-check the same rules and record
+     * a release attempt with authorizationMode "simulation". No money moves.
+     */
+    async requestRelease(bondId, input: RequestReleaseInput) {
+      await delay();
+      const c = findOwnCase(bondId);
+      const s = c.settlement ?? fail("invalid-state", "There is no settlement to release.");
+      if (s.status !== "approved") fail("invalid-state", "Both parties must approve the same terms before a release can be requested.");
+      if (input.proposalVersion !== s.currentProposal.version) fail("stale-version", "The release request does not match the approved terms.");
+      if (input.payloadHash !== undefined && input.payloadHash !== s.currentProposal.payloadHash) fail("stale-version", "The release request does not match the approved terms.");
+      const quorum = s.approvals.filter((a) => a.proposalVersion === s.currentProposal.version);
+      const distinctParties = new Set(quorum.map((a) => a.partyId));
+      const roles = new Set(quorum.map((a) => a.role));
+      if (distinctParties.size < 2 || !roles.has("renter") || !roles.has("landlord")) fail("invalid-state", "Approval quorum is incomplete.");
+      if (s.release && s.release.status !== "rejected") fail("invalid-state", `A release was already requested for ${s.transactionId}. Each transaction can only be released once.`);
+      s.release = {
+        releaseAttemptId: nextId("REL"),
+        transactionId: s.transactionId,
+        proposalVersion: s.currentProposal.version,
+        requestedBy: role,
+        status: "simulated",
+        authorizationMode: "simulation",
+        createdAt: now(),
+      };
+      event(s, "release-requested", role, `${me.displayName} requested release of ${s.transactionId}. Simulated policy check passed; no money moved.`);
       return clone(c);
     },
   };

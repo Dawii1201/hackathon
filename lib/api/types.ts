@@ -9,8 +9,10 @@
  * - Request bodies never carry the caller's role, identity, settlement status,
  *   or release state. The backend derives the actor from the verified
  *   TideCloak token and computes status from its own records.
- * - The frontend never sets a bond to "released". Release authorisation is a
- *   backend + Forseti concern and is not implemented yet.
+ * - The frontend never sets a bond to "released". It can only *request* a
+ *   release (POST /api/bonds/:id/releases); the backend re-checks the quorum
+ *   and policy and decides. Until Forseti is verified end to end, the only
+ *   possible outcome is a simulated release attempt.
  * - All money is integer cents (matches `amountInCents` in the canonical
  *   release payload described in PLAN.md).
  */
@@ -71,7 +73,27 @@ export interface SettlementProposal {
   refundToRenterCents: number;
   /** sum(deductions). Computed by the backend. */
   paymentToLandlordCents: number;
+  /**
+   * Hash of the canonical release payload, computed server-side only. Absent
+   * in the simulator, which has no canonical payload.
+   */
+  payloadHash?: string;
   note?: string;
+}
+
+export type ReleaseAttemptStatus = "simulated" | "verified" | "rejected";
+
+/** Result of asking the backend to release an approved settlement. */
+export interface ReleaseAttempt {
+  releaseAttemptId: string;
+  transactionId: string;
+  proposalVersion: number;
+  requestedBy: PartyRole;
+  status: ReleaseAttemptStatus;
+  /** "forseti" only after a real policy signature is verified by the backend. */
+  authorizationMode: "simulation" | "forseti";
+  createdAt: string;
+  rejectionReason?: string;
 }
 
 export interface Dispute {
@@ -90,7 +112,8 @@ export type TimelineEventType =
   | "approval-recorded"
   | "approvals-reset"
   | "settlement-approved"
-  | "dispute-raised";
+  | "dispute-raised"
+  | "release-requested";
 
 export interface TimelineEvent {
   id: string;
@@ -126,6 +149,8 @@ export interface SettlementCase {
   /** Approvals for `currentProposal.version` only. */
   approvals: Approval[];
   dispute: Dispute | null;
+  /** Latest release attempt, if one was requested. */
+  release: ReleaseAttempt | null;
   timeline: TimelineEvent[];
 }
 
@@ -151,22 +176,30 @@ export interface DeductionInput {
   evidenceNote?: string;
 }
 
-export interface CreateRefundRequestInput {
-  /** Deductions the renter accepts up front. Empty means full refund requested. */
-  deductions: DeductionInput[];
-  note?: string;
-}
-
+/** Body of POST /api/bonds/:id/proposals. */
 export interface ProposeTermsInput {
-  /** The version the caller was looking at; backend rejects stale edits. */
-  basedOnVersion: number;
+  /**
+   * The version the caller was looking at, or null to open the first
+   * proposal (the refund request). The backend rejects stale edits.
+   */
+  basedOnVersion: number | null;
+  /** Empty means a full refund to the renter. */
   deductions: DeductionInput[];
   note?: string;
 }
 
+/** Body of POST /api/bonds/:id/approvals. */
 export interface ApproveInput {
   /** Must equal the current version, or the backend rejects the approval. */
   proposalVersion: number;
+  /** Echo of the server's payloadHash when present; backend rejects mismatches. */
+  payloadHash?: string;
+}
+
+/** Body of POST /api/bonds/:id/releases. */
+export interface RequestReleaseInput {
+  proposalVersion: number;
+  payloadHash?: string;
 }
 
 export interface RaiseDisputeInput {
@@ -198,8 +231,8 @@ export interface BondApi {
   readonly mode: "mock" | "http";
   listMyBonds(): Promise<BondSummary[]>;
   getBondCase(bondId: string): Promise<BondCase>;
-  createRefundRequest(bondId: string, input: CreateRefundRequestInput): Promise<BondCase>;
   proposeTerms(bondId: string, input: ProposeTermsInput): Promise<BondCase>;
   approve(bondId: string, input: ApproveInput): Promise<BondCase>;
   raiseDispute(bondId: string, input: RaiseDisputeInput): Promise<BondCase>;
+  requestRelease(bondId: string, input: RequestReleaseInput): Promise<BondCase>;
 }
