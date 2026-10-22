@@ -2,6 +2,39 @@
 
 **A fairer way to agree what happens next.**
 
+**Team:** `RMIT_MEL_R1ce_Farmer_C2` (Tide UNLOCKED Challenge 2)
+
+## Submission files
+
+| File | Location |
+| --- | --- |
+| Source code (zip) | [sourcecodes.zip](./sourcecodes.zip) |
+| Demo video | [video.mp4](./video.mp4) |
+| README | [README.md](./README.md) |
+
+## Repository structure
+
+```
+.
+├── README.md                 # This file
+├── sourcecodes.zip           # Zipped source code for submission
+├── video.mp4                 # Demo video
+├── app/                      # Next.js App Router pages and API routes
+│   ├── api/                  # Server routes (app/api/bonds)
+│   ├── renter/               # Renter view
+│   ├── landlord/             # Landlord view
+│   └── dispute-guidance/     # Victorian dispute pathway guidance
+├── components/               # UI components (BondWorkspace, SecurityEvidence, ...)
+├── lib/
+│   ├── api/                  # Frontend API client
+│   ├── auth/                 # JWT / DPoP verification
+│   └── bonds/                # Settlement policy, quorum, replay protection
+├── shared/                   # Shared API contracts
+├── docs/                     # API contract and TideCloak setup notes
+├── .env.example              # Environment variable template (no secrets)
+└── package.json
+```
+
 ## The problem
 
 Rental bond settlement depends on trust between a renter and landlord. A unilateral release, altered amount, or privileged administrator should not be enough to finalize an agreement. If either party rejects the proposal, the settlement should move to hold and follow a dispute path.
