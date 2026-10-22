@@ -1,6 +1,6 @@
 # TideRent API contract
 
-This document defines the backend/frontend boundary for TideRent. It is a contract for the simulated rental bond workflow and does not claim that TideCloak or Forseti is configured in this repository yet.
+This document defines the backend/frontend boundary for TideRent. The bond API routes are implemented as a server-side prototype. TideCloak authentication is required by the routes when an adapter is configured; Forseti remains behind a simulation adapter until a real policy is deployed and verified.
 
 TideRent is a Victoria-focused prototype. It has no RTBA, Consumer Affairs Victoria, RDRV, VCAT, banking, payment, or money movement integration. Those official pathways remain separate.
 
@@ -66,7 +66,11 @@ Represents an attempt to finalize a proposal. The backend must reject incomplete
 
 ## Endpoint contract
 
-These routes are the planned backend contract. They may be implemented incrementally without changing the shapes below.
+These routes are implemented under `app/api/bonds`. Responses use the frontend `BondCase` and `BondSummary` shapes so the existing UI client can consume them without UI changes.
+
+The current backend store is process-local memory. It is suitable for the hackathon demonstration and resets when the server restarts. It is not durable storage and must be replaced by a transactional database before production use.
+
+The API derives the acting identity and role from the verified TideCloak token. There is no demo-role header or client-supplied actor fallback in the backend routes.
 
 ### `GET /api/bonds/:bondId`
 
@@ -77,52 +81,45 @@ Returns the bond visible to the authenticated renter, landlord, or authorized ad
 - `403`: authenticated user is not allowed to view the bond
 - `404`: bond does not exist or is not visible
 
-### `POST /api/settlement-proposals`
+### `POST /api/bonds/:bondId/proposals`
 
 Creates a proposal. The server derives `payloadHash`; clients must not submit a trusted hash as the source of truth.
 
-Request: `CreateSettlementProposalRequest`
+Request: the frontend `ProposeTermsInput` shape. `basedOnVersion: null` opens the first renter refund request.
 
-Response: `ApiResponse<SettlementProposal>` with `201`.
+Response: `ApiResponse<BondCase>` with `201`.
 
 Possible errors: `400` malformed payload, `401` unauthenticated, `403` party mismatch, `409` conflicting proposal or transaction ID.
 
-### `GET /api/settlement-proposals/:proposalId`
-
-Returns a proposal and its current application-level approval state.
-
-- `200`: `ApiResponse<SettlementProposal>`
-- `401`, `403`, `404` as above
-
-### `POST /api/settlement-proposals/:proposalId/approvals`
+### `POST /api/bonds/:bondId/approvals`
 
 Records the authenticated renter or landlord decision. The server derives the approver identity and role from the verified token; the client cannot choose either value.
 
-Request: `SubmitApprovalRequest`
+Request: the frontend `ApproveInput` shape. The server derives the approver identity and role.
 
 The server must compare the submitted `payloadHash` with the current proposal hash and reject mismatches.
 
-Response: `ApiResponse<Approval>` with `201`.
+Response: `ApiResponse<BondCase>` with `201`.
 
 Possible errors: `400` invalid decision, `401`, `403` wrong party or role, `409` duplicate approval or hash mismatch.
 
-### `POST /api/disputes`
+### `POST /api/bonds/:bondId/disputes`
 
 Opens a dispute for a bond or proposal.
 
-Request: `OpenDisputeRequest`
+Request: the frontend `RaiseDisputeInput` shape.
 
-Response: `ApiResponse<Dispute>` with `201`.
+Response: `ApiResponse<BondCase>` with `201`.
 
-### `POST /api/release-attempts`
+### `POST /api/bonds/:bondId/releases`
 
 Requests release authorization for a proposal. The server must re-read the authoritative proposal and bond records, reconstruct the canonical payload, and verify the approval quorum before invoking any policy service.
 
-Request: `CreateReleaseAttemptRequest`
+Request: the frontend `RequestReleaseInput` shape. The server derives the one-time transaction ID from the authoritative settlement record.
 
-Response: `ApiResponse<ReleaseAttempt>` with `201`.
+Response: `ApiResponse<BondCase>` with `201`.
 
-The current implementation may return `authorization.mode: "simulation"`. A future verified integration may return `"forseti"` only after the policy service returns authoritative evidence.
+The current implementation returns `release.authorizationMode: "simulation"`. A future verified integration may return `"forseti"` only after the policy adapter returns authoritative evidence.
 
 Possible errors: `400` malformed request, `401`, `403`, `409` hash mismatch, incomplete approvals, reused transaction ID, duplicate release, or dispute state.
 
@@ -130,7 +127,9 @@ Possible errors: `400` malformed request, `401`, `403`, `409` hash mismatch, inc
 
 TideCloak supplies identity, session, token, and role controls. It does not prove that a party approved a particular amount.
 
-The future Forseti policy must bind the exact canonical payload and enforce:
+The `BondReleasePolicyAdapter` boundary binds the exact canonical payload and receives both approval identities. The current `SimulatedForsetiPolicyAdapter` only validates that the service supplied complete evidence and returns a simulation marker. It does not sign, contact Forseti, or move money.
+
+A real Forseti policy must bind the exact canonical payload and enforce:
 
 1. distinct renter and landlord approvers;
 2. matching payload bytes or hash;
@@ -157,8 +156,9 @@ Recommended stable error codes include `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`,
 ## Current implementation status
 
 - Shared TypeScript contracts: defined in `shared/api-contracts.ts`.
-- API route implementation: not yet present.
+- Backend route implementation: present under `app/api/bonds`.
 - TideCloak realm and adapter JSON: missing from this workspace.
-- TideCloak SDK dependencies: not installed.
-- Server-side JWT and DPoP verification: feasible using the retrieved Tide playbooks, but not wired until realm configuration is supplied.
-- Forseti bond policy: custom development required; not verified end to end.
+- Server-side bond enforcement: present in `lib/bonds/service.ts`, with canonical payload hashing, version-bound approvals, distinct renter/landlord quorum, dispute state, object-level access checks, and one-time release state.
+- TideCloak SDK dependency: installed, but the realm and adapter JSON are missing, so live requests fail closed with `401`.
+- Forseti bond policy: adapter boundary and clearly labelled simulator are present; no real Forseti signature or deployment is verified.
+- Storage: process-local memory only; restart loses state.
