@@ -12,8 +12,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en-AU" className={`${sans.variable} ${logo.variable}`}>
-      <body>{children}</body>
+    // suppressHydrationWarning: browser extensions (e.g. Grammarly, QuillBot) add
+    // attributes to <html>/<body> before React hydrates. This only ignores
+    // attribute differences on these two elements, not inside the app.
+    <html lang="en-AU" className={`${sans.variable} ${logo.variable}`} suppressHydrationWarning>
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }
